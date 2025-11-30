@@ -23,43 +23,62 @@ from config import (get_random_user_agent, get_random_delay, SELECTORS,
 
 def setup_driver(headless=False, window_size=(1280, 720)):
     """设置浏览器驱动（优先Chrome，失败时使用Edge）"""
+    import time
     driver = None
     last_error = None
+
+    # 记录开始时间
+    start_time = time.time()
+    logging.info("=" * 50)
+    logging.info("开始设置浏览器驱动...")
 
     # 首先尝试 Chrome 浏览器
     try:
         logging.info("尝试创建 Chrome 驱动...")
+        chrome_start = time.time()
         driver = _setup_chrome_driver(headless, window_size)
-        logging.info("Chrome 驱动创建成功")
+        chrome_elapsed = time.time() - chrome_start
+        logging.info(f"Chrome 驱动创建成功 (耗时: {chrome_elapsed:.1f}秒)")
         return driver
 
     except Exception as chrome_error:
+        chrome_elapsed = time.time() - start_time
         last_error = chrome_error
-        logging.warning(f"Chrome 驱动创建失败: {chrome_error}")
+        logging.warning(f"Chrome 驱动创建失败 (耗时: {chrome_elapsed:.1f}秒): {chrome_error}")
 
         # Chrome 失败时，尝试 Edge 浏览器作为备选
         try:
             logging.info("尝试创建 Edge 驱动作为备选...")
+            edge_start = time.time()
             driver = _setup_edge_driver(headless, window_size)
-            logging.info("Edge 驱动创建成功（作为 Chrome 的备选方案）")
+            edge_elapsed = time.time() - edge_start
+            logging.info(f"Edge 驱动创建成功（作为 Chrome 的备选方案） (耗时: {edge_elapsed:.1f}秒)")
             return driver
 
         except Exception as edge_error:
+            total_elapsed = time.time() - start_time
             last_error = edge_error
-            logging.error(f"Edge 驱动也创建失败: {edge_error}")
+            logging.error(f"Edge 驱动也创建失败 (总耗时: {total_elapsed:.1f}秒): {edge_error}")
 
             # 提供详细的错误信息和解决方案
-            logging.error("所有浏览器驱动都失败了，请尝试以下解决方案:")
+            logging.error("=" * 50)
+            logging.error("浏览器驱动创建失败，请尝试以下解决方案:")
             logging.error("1. 确保 Chrome 或 Edge 浏览器已正确安装")
-            logging.error("2. 检查网络连接")
-            logging.error("3. 手动下载 ChromeDriver: https://chromedriver.chromium.org/")
-            logging.error("4. 将 ChromeDriver.exe 放到系统 PATH 或当前目录")
+            logging.error("2. 检查系统是否支持图形界面（headless模式可能需要X11）")
+            logging.error("3. 更新 Selenium 和 webdriver-manager:")
+            logging.error("   pip install --upgrade selenium webdriver-manager")
+            logging.error("4. 手动下载 ChromeDriver: https://chromedriver.chromium.org/")
+            logging.error("5. 将 ChromeDriver.exe 放到系统 PATH 或当前目录")
+            logging.error("6. 如果在网络受限环境中，确保网络连接正常")
+            logging.error("=" * 50)
 
             raise last_error
 
 def _setup_chrome_driver(headless=False, window_size=(1280, 720)):
     """设置Chrome浏览器驱动"""
     from selenium.webdriver.chrome.service import Service
+    import threading
+    import queue
 
     chrome_options = Options()
 
@@ -73,6 +92,20 @@ def _setup_chrome_driver(headless=False, window_size=(1280, 720)):
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
+
+    # 优化Chrome启动性能的额外参数
+    chrome_options.add_argument('--disable-extensions')
+    chrome_options.add_argument('--disable-plugins')
+    chrome_options.add_argument('--disable-default-apps')
+    chrome_options.add_argument('--disable-translate')
+    chrome_options.add_argument('--disable-sync')
+    chrome_options.add_argument('--no-first-run')
+    chrome_options.add_argument('--disable-background-timer-throttling')
+    chrome_options.add_argument('--disable-backgrounding-occluded-windows')
+    chrome_options.add_argument('--disable-renderer-backgrounding')
+    chrome_options.add_argument('--disable-features=TranslateUI')
+    chrome_options.add_argument('--disable-ipc-flooding-protection')
+    chrome_options.add_argument('--password-store=basic')
 
     if headless:
         chrome_options.add_argument('--headless=new')  # 使用新的 headless 模式
@@ -102,28 +135,77 @@ def _setup_chrome_driver(headless=False, window_size=(1280, 720)):
     if chrome_path:
         chrome_options.binary_location = chrome_path
         logging.info(f"使用 Chrome 路径: {chrome_path}")
+    else:
+        raise Exception(f"未找到Chrome浏览器，请检查以下路径:\n{chr(10).join(chrome_paths)}")
 
-    # 尝试多种方式创建驱动
+    # 尝试多种方式创建驱动（带超时控制）
     driver = None
     last_error = None
 
-    # 方法1: 使用 Selenium 4.38.0 的内置驱动管理
+    # 方法1: 使用 Selenium 4.38.0 的内置驱动管理（带超时）
+    def create_driver_with_selenium():
+        return webdriver.Chrome(options=chrome_options)
+
     try:
-        driver = webdriver.Chrome(options=chrome_options)
-        logging.info("Chrome 方法1: Selenium 内置驱动管理成功")
+        logging.info("尝试创建 Chrome 驱动（Selenium 内置）...")
+        # 使用线程和队列来实现超时控制
+        result_queue = queue.Queue()
+        worker_thread = threading.Thread(
+            target=lambda: result_queue.put(('success', create_driver_with_selenium())),
+            daemon=True
+        )
+        worker_thread.start()
+        worker_thread.join(timeout=15)  # 15秒超时
+
+        if worker_thread.is_alive():
+            raise Exception("Chrome驱动创建超时（15秒）")
+
+        try:
+            status, result = result_queue.get_nowait()
+            if status == 'success':
+                driver = result
+                logging.info("Chrome 方法1: Selenium 内置驱动管理成功")
+        except queue.Empty:
+            raise Exception("Chrome驱动创建失败")
+
     except Exception as e1:
         last_error = e1
         logging.warning(f"Chrome 方法1失败: {e1}")
 
-        # 方法2: 尝试使用 webdriver-manager（如果网络可用）
+        # 方法2: 尝试使用 webdriver-manager（仅当模块存在时）
         try:
             from webdriver_manager.chrome import ChromeDriverManager
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            logging.info("Chrome 方法2: webdriver-manager 成功")
-        except Exception as e2:
-            logging.warning(f"Chrome 方法2失败: {e2}")
-            last_error = e2
+        except ImportError:
+            logging.info("webdriver-manager 模块未安装，跳过方法2")
+        else:
+            def create_driver_with_manager():
+                service = Service(ChromeDriverManager().install())
+                return webdriver.Chrome(service=service, options=chrome_options)
+
+            try:
+                logging.info("尝试 webdriver-manager 方式...")
+                result_queue = queue.Queue()
+                worker_thread = threading.Thread(
+                    target=lambda: result_queue.put(('success', create_driver_with_manager())),
+                    daemon=True
+                )
+                worker_thread.start()
+                worker_thread.join(timeout=30)  # 30秒超时（webdriver-manager需要下载时间）
+
+                if worker_thread.is_alive():
+                    raise Exception("webdriver-manager 超时（30秒）")
+
+                try:
+                    status, result = result_queue.get_nowait()
+                    if status == 'success':
+                        driver = result
+                        logging.info("Chrome 方法2: webdriver-manager 成功")
+                except queue.Empty:
+                    raise Exception("webdriver-manager 创建失败")
+
+            except Exception as e2:
+                logging.warning(f"Chrome 方法2失败: {e2}")
+                last_error = e2
 
     # 如果所有方法都失败，抛出最后的错误
     if driver is None:
