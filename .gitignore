@@ -1,0 +1,22 @@
+# 忽略 articles 文件夹下的所有文件
+articles/
+
+# 忽略 wechat_articles.json 文件
+wechat_articles.json
+
+# Claude Code 工作文件
+.claude/
+
+# Python 缓存文件
+__pycache__/
+*.pyc
+*.pyo
+
+# 常见的忽略规则
+logs/
+*.log
+node_modules/
+dist/
+build/
+.env
+.DS_Store

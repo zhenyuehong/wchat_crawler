@@ -1,0 +1,22 @@
+# 微信公众号专辑文章抓取脚本依赖包
+
+# Selenium WebDriver - 核心自动化库
+selenium>=4.15.0
+
+# 请求处理（备用）
+requests>=2.31.0
+
+# HTML解析
+beautifulsoup4>=4.12.0
+
+# 进度条显示
+tqdm>=4.65.0
+
+# 日期时间处理
+python-dateutil>=2.8.2
+
+# 正则表达式增强
+regex>=2023.6.3
+
+# 注意：以下模块为Python内置模块，无需单独安装
+# argparse, pathlib, json, logging, time, random, sys, os, re, datetime, urllib.parse
