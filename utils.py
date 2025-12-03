@@ -685,25 +685,22 @@ def generate_smart_filename(url, title, index, album_title=None, publish_time=No
             from datetime import datetime
             dt = datetime.strptime(publish_time, '%Y-%m-%d %H:%M:%S')
             date_timestamp = dt.strftime('%Y%m%d')  # 20240115格式
-            time_timestamp = dt.strftime('%H%M%S')   # 103000格式
             publish_date = dt.strftime('%Y-%m-%d')  # 2024-01-15格式
         except:
             # 如果解析失败，使用当前时间
             from datetime import datetime
             now = datetime.now()
             date_timestamp = now.strftime('%Y%m%d')
-            time_timestamp = now.strftime('%H%M%S')
             publish_date = now.strftime('%Y-%m-%d')
     else:
         # 如果没有发布时间，使用当前时间
         from datetime import datetime
         now = datetime.now()
         date_timestamp = now.strftime('%Y%m%d')
-        time_timestamp = now.strftime('%H%M%S')
         publish_date = now.strftime('%Y-%m-%d')
 
-    # 生成基础文件名：{专辑标题}_{发布时间日期时间戳}
-    base_filename = f"{clean_album}_{date_timestamp}{time_timestamp}"
+    # 生成基础文件名：{专辑标题}_{发布时间日期戳}
+    base_filename = f"{clean_album}_{date_timestamp}"
 
     # 如果有计数器数据，处理同日多篇文章的编号
     if counter_data is not None:
