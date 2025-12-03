@@ -320,6 +320,127 @@ class WeChatAlbumCrawler:
                 pass
             return None, None
 
+    def _check_and_append_new_articles(self, album_url):
+        """
+        检查并追加新文章到现有JSON文件中
+        每次启动时自动执行此功能
+        """
+        try:
+            logging.info("开始检查是否有新文章...")
+
+            # 临时设置驱动（如果还没有设置）
+            temp_driver = None
+            if not self.driver:
+                temp_driver = setup_driver(headless=self.headless, window_size=WINDOW_SIZE)
+                self.driver = temp_driver
+
+            # 加载专辑页面
+            if not self.load_album_page(album_url):
+                logging.warning("无法加载专辑页面进行新文章检测")
+                return
+
+            # 加载所有文章
+            logging.info("正在加载专辑页面以检测新文章...")
+            loaded_count = self.load_all_articles()
+            logging.info(f"页面加载完成，共找到 {loaded_count} 篇文章")
+
+            # 提取当前页面的文章列表
+            temp_articles_data = self.articles_data.copy() if self.articles_data else {'articles': []}
+            temp_articles_data['articles'] = []  # 清空文章列表，重新提取
+            self.articles_data = temp_articles_data
+
+            articles = self.extract_articles_list()
+            if not articles:
+                logging.info("未找到任何文章，无法进行新文章检测")
+                return
+
+            # 重新加载原始数据
+            original_data = load_json_state(JSON_FILE)
+            if not original_data:
+                logging.info("未找到原始数据，无法进行新文章检测")
+                return
+
+            # 收集现有文章的URL哈希
+            existing_urls = set()
+            if original_data.get('articles'):
+                for article in original_data['articles']:
+                    if article.get('url'):
+                        existing_urls.add(extract_url_hash(article['url']))
+
+            # 查找新文章
+            new_articles = []
+            max_existing_index = 0
+
+            # 获取现有最大索引
+            if original_data.get('articles'):
+                for article in original_data['articles']:
+                    if article.get('index', 0) > max_existing_index:
+                        max_existing_index = article['index']
+
+            for article in articles:
+                article_url_hash = extract_url_hash(article.get('url', ''))
+                if article_url_hash not in existing_urls:
+                    # 为新文章分配连续的索引号
+                    new_article = article.copy()
+                    new_article['index'] = max_existing_index + len(new_articles) + 1
+                    new_article['status'] = 'pending'
+                    new_article['file_path'] = None
+                    new_article['error_message'] = None
+                    new_article['processed_time'] = None
+                    new_article['retry_count'] = 0
+                    new_articles.append(new_article)
+                    logging.info(f"发现新文章: {article.get('title', '未知标题')[:50]}...")
+
+            if new_articles:
+                logging.info(f"发现 {len(new_articles)} 篇新文章，开始追加到JSON文件...")
+
+                # 追加新文章到原始数据
+                original_data['articles'].extend(new_articles)
+
+                # 更新统计信息
+                original_data['total_articles'] = len(original_data['articles'])
+                original_data['pending_count'] = len([a for a in original_data['articles'] if a['status'] == 'pending'])
+                original_data['processed_count'] = len([a for a in original_data['articles'] if a['status'] == 'completed'])
+                original_data['failed_count'] = len([a for a in original_data['articles'] if a['status'] == 'failed'])
+                original_data['crawl_time'] = datetime.now().isoformat()
+
+                # 保存更新后的数据
+                save_json_state(original_data, JSON_FILE)
+
+                # 更新当前实例的数据
+                self.articles_data = original_data
+
+                logging.info(f"成功追加 {len(new_articles)} 篇新文章到 wechat_articles.json")
+                logging.info(f"更新后总文章数: {original_data['total_articles']}")
+                logging.info(f"待处理文章数: {original_data['pending_count']}")
+
+                print(f"🔍 发现 {len(new_articles)} 篇新文章已自动追加到JSON文件")
+                print(f"📊 当前总文章数: {original_data['total_articles']}")
+                print(f"⏳ 待处理文章数: {original_data['pending_count']}")
+            else:
+                logging.info("未发现新文章，继续使用现有数据")
+                print("✅ 未发现新文章，继续使用现有数据")
+
+            # 清理临时驱动
+            if temp_driver:
+                try:
+                    temp_driver.quit()
+                except:
+                    pass
+                self.driver = None
+
+        except Exception as e:
+            logging.error(f"检测新文章时出错: {e}")
+            print(f"⚠️ 检测新文章时出错，继续使用现有数据: {e}")
+
+            # 确保清理临时驱动
+            if 'temp_driver' in locals() and temp_driver:
+                try:
+                    temp_driver.quit()
+                except:
+                    pass
+                self.driver = None
+
     def clean_content(self, content):
         """
         清理文章内容，去除从"收录于"开始的部分
@@ -420,6 +541,9 @@ class WeChatAlbumCrawler:
                 self.articles_data = load_json_state(JSON_FILE)
                 if self.articles_data:
                     logging.info("加载现有状态成功")
+                    # 检查是否有新文章需要追加
+                    if not retry_failed_only:
+                        self._check_and_append_new_articles(album_url)
                 else:
                     logging.info("创建新的状态文件")
                     self.articles_data = None
