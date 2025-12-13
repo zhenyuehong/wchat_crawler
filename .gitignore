@@ -1,8 +1,11 @@
 # 忽略 articles 文件夹下的所有文件
 articles/
+toutiao_article/
+toutiao_articles/
 
 # 忽略 wechat_articles.json 文件
 wechat_articles.json
+toutiao_articles.json
 
 # Claude Code 工作文件
 .claude/

@@ -9,8 +9,10 @@ import random
 # 基础配置
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARTICLES_DIR = os.path.join(BASE_DIR, "articles")
+TOUTIAO_ARTICLES_DIR = os.path.join(BASE_DIR, "toutiao_article")
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 JSON_FILE = os.path.join(BASE_DIR, "wechat_articles.json")
+TOUTIAO_JSON_FILE = os.path.join(BASE_DIR, "toutiao_articles.json")
 
 # Selenium配置
 CHROME_DRIVER_PATH = None  # 如果为None，使用系统PATH中的chromedriver
@@ -62,6 +64,21 @@ SELECTORS = {
         'no_more_element': '.no-more',
         'article_content': '#js_content',
         'article_title_full': '#activity-name'
+    },
+
+    # 今日头条选择器
+    'toutiao': {
+        'user_container': '.profile-tab-feed',
+        'article_cards': '.profile-article-card-wrapper',
+        'article_link': '.feed-card-article-l .title',
+        'article_title': '.feed-card-article-l .title',
+        'publish_time': '.feed-card-footer-time-cmp',
+        'read_count': '.profile-feed-card-tools-text',
+        'article_content': 'article.syl-article-base',
+        'article_title_full': 'h1',
+        'article_meta': '.article-meta',
+        'author_name': '.article-meta .name',
+        'loading_more': '.loading-more'  # 加载更多元素
     }
 }
 
@@ -99,4 +116,5 @@ def get_article_file_path(index, title):
 def ensure_directories():
     """确保必要的目录存在"""
     os.makedirs(ARTICLES_DIR, exist_ok=True)
+    os.makedirs(TOUTIAO_ARTICLES_DIR, exist_ok=True)
     os.makedirs(LOGS_DIR, exist_ok=True)

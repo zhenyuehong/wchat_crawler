@@ -19,7 +19,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 
-from config import (BASE_DIR, ARTICLES_DIR, LOGS_DIR, JSON_FILE,
+from config import (BASE_DIR, ARTICLES_DIR, TOUTIAO_ARTICLES_DIR, LOGS_DIR, JSON_FILE,
                    DEFAULT_DELAY, get_random_delay, SELECTORS, SCROLL_PAUSE_TIME,
                    HEADLESS, WINDOW_SIZE)
 from utils import (setup_driver, setup_logging, load_json_state, save_json_state,
@@ -749,12 +749,12 @@ class WeChatAlbumCrawler:
 
 def main():
     """主函数"""
-    parser = argparse.ArgumentParser(description='微信公众号专辑文章抓取工具')
-    parser.add_argument('--url', required=True, help='微信公众号专辑链接')
-    parser.add_argument('--output', default=ARTICLES_DIR, help='文章保存目录')
+    parser = argparse.ArgumentParser(description='文章抓取工具（支持微信公众号和今日头条）')
+    parser.add_argument('--url', required=True, help='文章链接（微信公众号专辑或今日头条用户主页）')
+    parser.add_argument('--output', help='文章保存目录（可选，自动选择平台默认目录）')
     parser.add_argument('--delay', type=int, default=DEFAULT_DELAY, help='请求间隔时间（秒）')
     parser.add_argument('--no-resume', action='store_false', dest='resume', help='不从断点继续，重新开始')
-    parser.add_argument('--retry-failed', action='store_true', help='仅重试失败的文章')
+    parser.add_argument('--retry-failed', action='store_true', help='仅重试失败的文章（仅支持微信公众号）')
     parser.add_argument('--headless', action='store_true', help='无头模式运行')
 
     args = parser.parse_args()
@@ -764,32 +764,90 @@ def main():
         print("错误：无效的URL")
         return 1
 
+    # 自动识别平台
+    if "mp.weixin.qq.com" in args.url:
+        platform = "wechat"
+        default_output = ARTICLES_DIR
+    elif "toutiao.com" in args.url:
+        platform = "toutiao"
+        default_output = TOUTIAO_ARTICLES_DIR
+    else:
+        # 无法自动识别，让用户选择
+        print("\n请选择平台类型:")
+        print("1. 微信公众号")
+        print("2. 今日头条")
+        choice = input("请输入选项（1或2）: ").strip()
+
+        if choice == "1":
+            platform = "wechat"
+            default_output = ARTICLES_DIR
+        elif choice == "2":
+            platform = "toutiao"
+            default_output = TOUTIAO_ARTICLES_DIR
+        else:
+            print("错误：无效的选项")
+            return 1
+
+    # 设置输出目录
+    if not args.output:
+        args.output = default_output
+
     # 确保目录存在
     os.makedirs(args.output, exist_ok=True)
     os.makedirs(LOGS_DIR, exist_ok=True)
 
-    # 创建抓取器
-    crawler = WeChatAlbumCrawler(headless=args.headless, delay=args.delay)
+    print(f"\n平台: {'微信公众号' if platform == 'wechat' else '今日头条'}")
+    print(f"输出目录: {args.output}")
+    print(f"URL: {args.url}")
+    print("-" * 50)
 
-    # 开始抓取
-    try:
-        success = crawler.crawl_album(
-            album_url=args.url,
-            output_dir=args.output,
-            resume=args.resume,
-            retry_failed_only=args.retry_failed
-        )
-        return 0 if success else 1
+    # 根据平台选择抓取器
+    if platform == "wechat":
+        # 微信公众号抓取
+        crawler = WeChatAlbumCrawler(headless=args.headless, delay=args.delay)
 
-    except KeyboardInterrupt:
-        print("\n用户中断操作")
-        logging.info("用户中断操作")
-        return 1
+        try:
+            success = crawler.crawl_album(
+                album_url=args.url,
+                output_dir=args.output,
+                resume=args.resume,
+                retry_failed_only=args.retry_failed
+            )
+            return 0 if success else 1
 
-    except Exception as e:
-        print(f"\n程序异常: {e}")
-        logging.error(f"程序异常: {e}")
-        return 1
+        except KeyboardInterrupt:
+            print("\n用户中断操作")
+            logging.info("用户中断操作")
+            return 1
+
+        except Exception as e:
+            print(f"\n程序异常: {e}")
+            logging.error(f"程序异常: {e}")
+            return 1
+
+    elif platform == "toutiao":
+        # 今日头条抓取
+        from toutiao_crawler import ToutiaoUserCrawler
+
+        crawler = ToutiaoUserCrawler(headless=args.headless, delay=args.delay)
+
+        try:
+            success = crawler.crawl_user_articles(
+                user_url=args.url,
+                output_dir=args.output,
+                resume=args.resume
+            )
+            return 0 if success else 1
+
+        except KeyboardInterrupt:
+            print("\n用户中断操作")
+            logging.info("用户中断操作")
+            return 1
+
+        except Exception as e:
+            print(f"\n程序异常: {e}")
+            logging.error(f"程序异常: {e}")
+            return 1
 
 if __name__ == "__main__":
     sys.exit(main())
