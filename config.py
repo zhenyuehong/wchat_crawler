@@ -41,6 +41,7 @@ ERROR_LOG_FILE = os.path.join(LOGS_DIR, "errors.log")
 
 # CSS选择器配置
 SELECTORS = {
+    # 原有页面选择器
     'album_container': '#js_list',
     'album_items': '.album-item',
     'article_link': 'data-link',
@@ -48,7 +49,20 @@ SELECTORS = {
     'loading_element': '#js_tag_loading',
     'no_more_element': '#js_tag_no_more_articles',
     'article_content': '#js_content',
-    'article_title_full': '#activity-name'
+    'article_title_full': '#activity-name',
+
+    # 新增新页面的备选选择器
+    'alternative': {
+        'album_container': '.js_album_list',
+        'album_items': '.album__list-item',
+        'article_link': '.album__item',
+        'article_title': '.album__item-title-wrp a',
+        'article_title_text': '.album__item-title-text',  # 新页面中实际的标题文本元素
+        'loading_element': '.loading',
+        'no_more_element': '.no-more',
+        'article_content': '#js_content',
+        'article_title_full': '#activity-name'
+    }
 }
 
 # 用户代理配置

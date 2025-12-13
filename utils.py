@@ -891,3 +891,245 @@ def update_articles_with_url_matching(articles_data, new_articles):
     articles_data['pending_count'] = pending_count
 
     return articles_data
+
+def find_element_with_fallback(driver, selector_key, timeout=ELEMENT_WAIT_TIMEOUT):
+    """
+    使用向后兼容的方式查找单个元素
+
+    Args:
+        driver: Selenium WebDriver实例
+        selector_key (str): 选择器键名
+        timeout (int): 超时时间
+
+    Returns:
+        WebElement: 找到的元素，失败返回None
+    """
+    try:
+        # 首先尝试原有选择器
+        original_selector = SELECTORS.get(selector_key)
+        if original_selector:
+            element = WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, original_selector))
+            )
+            if element:
+                logging.debug(f"使用原有选择器找到元素: {selector_key} -> {original_selector}")
+                return element
+    except:
+        pass
+
+    try:
+        # 尝试备选选择器
+        alternative_selector = SELECTORS.get('alternative', {}).get(selector_key)
+        if alternative_selector:
+            element = WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, alternative_selector))
+            )
+            if element:
+                logging.debug(f"使用备选选择器找到元素: {selector_key} -> {alternative_selector}")
+                return element
+    except:
+        pass
+
+    logging.warning(f"无法找到元素: {selector_key}")
+    return None
+
+def find_elements_with_fallback(driver, selector_key, timeout=ELEMENT_WAIT_TIMEOUT):
+    """
+    使用向后兼容的方式查找多个元素
+
+    Args:
+        driver: Selenium WebDriver实例
+        selector_key (str): 选择器键名
+        timeout (int): 超时时间
+
+    Returns:
+        list: 找到的元素列表，失败返回空列表
+    """
+    elements = []
+
+    try:
+        # 首先尝试原有选择器
+        original_selector = SELECTORS.get(selector_key)
+        if original_selector:
+            WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, original_selector))
+            )
+            elements = driver.find_elements(By.CSS_SELECTOR, original_selector)
+            if elements:
+                logging.debug(f"使用原有选择器找到 {len(elements)} 个元素: {selector_key} -> {original_selector}")
+                return elements
+    except:
+        pass
+
+    try:
+        # 尝试备选选择器
+        alternative_selector = SELECTORS.get('alternative', {}).get(selector_key)
+        if alternative_selector:
+            WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, alternative_selector))
+            )
+            elements = driver.find_elements(By.CSS_SELECTOR, alternative_selector)
+            if elements:
+                logging.debug(f"使用备选选择器找到 {len(elements)} 个元素: {selector_key} -> {alternative_selector}")
+                return elements
+    except:
+        pass
+
+    logging.warning(f"无法找到任何元素: {selector_key}")
+    return []
+
+def extract_article_link_with_fallback(article_element, driver):
+    """
+    使用向后兼容的方式从文章元素中提取链接
+
+    Args:
+        article_element: WebElement 文章元素
+        driver: Selenium WebDriver实例
+
+    Returns:
+        str: 文章链接URL，失败返回None
+    """
+    # 尝试原有页面的链接提取方式 (data-link属性)
+    try:
+        link = article_element.get_attribute('data-link')
+        if link and link.startswith('http'):
+            return link
+    except:
+        pass
+
+    # 尝试新页面的链接提取方式 (查找a标签)
+    try:
+        link_element = article_element.find_element(By.TAG_NAME, 'a')
+        link = link_element.get_attribute('href')
+        if link and link.startswith('http'):
+            return link
+    except:
+        pass
+
+    # 尝试通过点击获取链接（新页面可能需要点击）
+    try:
+        article_element.click()
+        time.sleep(2)
+        # 切换到新窗口或检查当前URL
+        if len(driver.window_handles) > 1:
+            driver.switch_to.window(driver.window_handles[-1])
+            current_url = driver.current_url
+            driver.close()
+            driver.switch_to.window(driver.window_handles[0])
+            return current_url
+    except:
+        pass
+
+    logging.warning("无法提取文章链接")
+    return None
+
+def extract_article_title_with_fallback(article_element):
+    """
+    使用向后兼容的方式从文章元素中提取标题
+
+    Args:
+        article_element: WebElement 文章元素
+
+    Returns:
+        str: 文章标题，失败返回"未知标题"
+    """
+    # 尝试原有页面的标题提取方式
+    try:
+        title_element = article_element.find_element(By.CSS_SELECTOR, SELECTORS['article_title'])
+        title = title_element.text.strip()
+        if title:
+            return title
+    except:
+        pass
+
+    # 尝试新页面的标题提取方式
+    try:
+        title_selector = SELECTORS.get('alternative', {}).get('article_title_text')
+        if title_selector:
+            title_element = article_element.find_element(By.CSS_SELECTOR, title_selector)
+            title = title_element.text.strip()
+            if title:
+                return title
+    except:
+        pass
+
+    # 尝试通过a标签的title属性或文本获取
+    try:
+        link_element = article_element.find_element(By.TAG_NAME, 'a')
+        # 先尝试title属性
+        title = link_element.get_attribute('title')
+        if title:
+            return title.strip()
+        # 再尝试链接文本
+        title = link_element.text.strip()
+        if title:
+            return title
+    except:
+        pass
+
+    logging.warning("无法提取文章标题")
+    return "未知标题"
+
+def check_loading_with_fallback(driver):
+    """
+    使用向后兼容的方式检查页面是否还在加载
+
+    Args:
+        driver: Selenium WebDriver实例
+
+    Returns:
+        bool: True表示还在加载，False表示加载完成
+    """
+    # 检查原有加载指示器
+    try:
+        loading_selector = SELECTORS.get('loading_element')
+        if loading_selector:
+            loading_element = driver.find_element(By.CSS_SELECTOR, loading_selector)
+            if loading_element and loading_element.is_displayed():
+                return True
+    except:
+        pass
+
+    # 检查备选加载指示器
+    try:
+        loading_selector = SELECTORS.get('alternative', {}).get('loading_element')
+        if loading_selector:
+            loading_element = driver.find_element(By.CSS_SELECTOR, loading_selector)
+            if loading_element and loading_element.is_displayed():
+                return True
+    except:
+        pass
+
+    return False
+
+def check_no_more_with_fallback(driver):
+    """
+    使用向后兼容的方式检查是否已加载所有文章
+
+    Args:
+        driver: Selenium WebDriver实例
+
+    Returns:
+        bool: True表示已加载全部，False表示还有更多
+    """
+    # 检查原有"没有更多"指示器
+    try:
+        no_more_selector = SELECTORS.get('no_more_element')
+        if no_more_selector:
+            no_more_element = driver.find_element(By.CSS_SELECTOR, no_more_selector)
+            if no_more_element and no_more_element.is_displayed():
+                return True
+    except:
+        pass
+
+    # 检查备选"没有更多"指示器
+    try:
+        no_more_selector = SELECTORS.get('alternative', {}).get('no_more_element')
+        if no_more_selector:
+            no_more_element = driver.find_element(By.CSS_SELECTOR, no_more_selector)
+            if no_more_element and no_more_element.is_displayed():
+                return True
+    except:
+        pass
+
+    return False

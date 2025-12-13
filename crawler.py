@@ -29,7 +29,10 @@ from utils import (setup_driver, setup_logging, load_json_state, save_json_state
                    check_article_exists_by_url, smart_save_article_content,
                    extract_real_title_from_content, update_articles_with_url_matching,
                    extract_publish_time_from_article, parse_wechat_time_text,
-                   load_date_counter, save_date_counter)
+                   load_date_counter, save_date_counter,
+                   find_element_with_fallback, find_elements_with_fallback,
+                   extract_article_link_with_fallback, extract_article_title_with_fallback,
+                   check_loading_with_fallback, check_no_more_with_fallback)
 
 class WeChatAlbumCrawler:
     """微信公众号专辑文章抓取器"""
@@ -86,23 +89,52 @@ class WeChatAlbumCrawler:
             return False
 
     def extract_album_info(self):
-        """提取专辑基本信息"""
+        """提取专辑基本信息（向后兼容）"""
         try:
-            # 提取专辑标题
-            title_element = self.driver.find_element(By.CSS_SELECTOR, "#js_tag_name")
-            album_title = title_element.text.strip() if title_element else "未知专辑"
-
-            # 提取文章总数
-            desc_element = self.driver.find_element(By.CSS_SELECTOR, "#js_desc_area span")
+            album_title = "未知专辑"
             total_articles = 0
-            if desc_element:
-                desc_text = desc_element.text
-                # 提取数字，如 "263个内容"
-                import re
-                match = re.search(r'(\d+)', desc_text)
-                if match:
-                    total_articles = int(match.group(1))
 
+            # 尝试原有页面的标题选择器
+            title_selectors = ["#js_tag_name", "h1", ".album_name"]
+            for selector in title_selectors:
+                try:
+                    title_element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    title_text = title_element.text.strip()
+                    if title_text and len(title_text) > 2:
+                        album_title = title_text
+                        logging.debug(f"使用选择器 {selector} 找到标题: {album_title}")
+                        break
+                except:
+                    continue
+
+            # 尝试提取文章总数
+            desc_selectors = ["#js_desc_area span", ".album_desc", ".desc", "#js_total_count"]
+            for selector in desc_selectors:
+                try:
+                    desc_element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    desc_text = desc_element.text.strip()
+                    if desc_text:
+                        # 提取数字，如 "263个内容"、"共263篇"等
+                        import re
+                        match = re.search(r'(\d+)', desc_text)
+                        if match:
+                            total_articles = int(match.group(1))
+                            logging.debug(f"使用选择器 {selector} 找到文章数: {total_articles}")
+                            break
+                except:
+                    continue
+
+            # 如果获取不到文章数，尝试直接从页面中计算文章项数量
+            if total_articles == 0:
+                try:
+                    articles_elements = find_elements_with_fallback(self.driver, 'album_items')
+                    if articles_elements:
+                        total_articles = len(articles_elements)
+                        logging.info(f"通过计算文章项数量得到: {total_articles}")
+                except:
+                    pass
+
+            logging.info(f"专辑信息 - 标题: {album_title}, 文章数: {total_articles}")
             return album_title, total_articles
 
         except Exception as e:
@@ -110,21 +142,25 @@ class WeChatAlbumCrawler:
             return "未知专辑", 0
 
     def load_all_articles(self):
-        """加载所有文章列表"""
+        """加载所有文章列表（向后兼容）"""
         try:
             logging.info("开始加载所有文章...")
 
             last_count = 0
             no_change_count = 0
             max_no_change = 3  # 连续3次没有变化就停止
+            max_iterations = 20  # 最大迭代次数，防止无限循环
+            iteration = 0
 
-            while no_change_count < max_no_change:
+            while no_change_count < max_no_change and iteration < max_iterations:
+                iteration += 1
+                logging.info(f"第 {iteration} 次加载尝试...")
+
                 # 滚动到底部
                 scroll_to_bottom(self.driver, SCROLL_PAUSE_TIME)
 
-                # 获取当前文章数量
-                articles_container = self.driver.find_element(By.CSS_SELECTOR, SELECTORS['album_container'])
-                current_articles = articles_container.find_elements(By.CSS_SELECTOR, SELECTORS['album_items'])
+                # 使用向后兼容的方式获取当前文章数量
+                current_articles = find_elements_with_fallback(self.driver, 'album_items')
                 current_count = len(current_articles)
 
                 logging.info(f"当前已加载 {current_count} 篇文章")
@@ -132,34 +168,39 @@ class WeChatAlbumCrawler:
                 # 检查是否有变化
                 if current_count == last_count:
                     no_change_count += 1
-                    logging.info(f"文章数量无变化，计数: {no_change_count}")
+                    logging.info(f"文章数量无变化，计数: {no_change_count}/{max_no_change}")
                 else:
                     no_change_count = 0
                     last_count = current_count
+                    logging.info("文章数量有更新，重置计数器")
 
-                # 检查是否还有加载更多元素
-                try:
-                    loading_element = self.driver.find_element(By.CSS_SELECTOR, SELECTORS['loading_element'])
-                    if loading_element.is_displayed():
-                        logging.info("检测到加载更多元素，继续等待...")
-                        time.sleep(2)
-                        continue
-                except NoSuchElementException:
-                    pass
+                # 使用向后兼容的方式检查是否还有加载更多元素
+                if check_loading_with_fallback(self.driver):
+                    logging.info("检测到加载更多元素，继续等待...")
+                    time.sleep(2)
+                    continue
 
-                # 检查是否到达底部
-                try:
-                    no_more_element = self.driver.find_element(By.CSS_SELECTOR, SELECTORS['no_more_element'])
-                    if no_more_element.is_displayed():
-                        logging.info("检测到已加载全部文章")
-                        break
-                except NoSuchElementException:
-                    pass
+                # 使用向后兼容的方式检查是否到达底部
+                if check_no_more_with_fallback(self.driver):
+                    logging.info("检测到已加载全部文章")
+                    break
+
+                # 如果文章数量为0，可能页面结构有问题，尝试额外等待
+                if current_count == 0:
+                    logging.warning("未找到任何文章元素，可能页面仍在加载或结构不兼容")
+                    time.sleep(3)
 
                 time.sleep(1)
 
-            final_count = len(self.driver.find_elements(By.CSS_SELECTOR, SELECTORS['album_items']))
-            logging.info(f"文章加载完成，共 {final_count} 篇")
+            # 使用向后兼容的方式获取最终文章数量
+            final_articles = find_elements_with_fallback(self.driver, 'album_items')
+            final_count = len(final_articles)
+
+            if final_count == 0:
+                logging.error("最终仍无法找到任何文章元素，可能页面结构不兼容")
+            else:
+                logging.info(f"文章加载完成，共 {final_count} 篇")
+
             return final_count
 
         except Exception as e:
@@ -167,19 +208,24 @@ class WeChatAlbumCrawler:
             return 0
 
     def extract_articles_list(self):
-        """提取文章列表，支持URL去重"""
+        """提取文章列表，支持URL去重（向后兼容）"""
         try:
             new_articles = []
 
-            # 获取所有文章元素
-            articles_elements = self.driver.find_elements(By.CSS_SELECTOR, SELECTORS['album_items'])
+            # 使用向后兼容的方式获取所有文章元素
+            articles_elements = find_elements_with_fallback(self.driver, 'album_items')
             logging.info(f"找到 {len(articles_elements)} 个文章元素")
+
+            if not articles_elements:
+                logging.warning("未找到任何文章元素，可能页面结构不兼容或页面未加载完成")
+                return []
 
             for index, element in enumerate(articles_elements):
                 try:
-                    # 提取文章链接
-                    article_url = element.get_attribute(SELECTORS['article_link'])
+                    # 使用向后兼容的方式提取文章链接
+                    article_url = extract_article_link_with_fallback(element, self.driver)
                     if not article_url:
+                        logging.warning(f"第{index+1}个文章元素无法提取链接，跳过")
                         continue
 
                     # 检查文章是否已经存在（基于URL去重）
@@ -196,15 +242,36 @@ class WeChatAlbumCrawler:
                     else:
                         article_index = index + 1
 
-                    # 提取预览内容
-                    try:
-                        preview_element = element.find_element(By.CSS_SELECTOR, SELECTORS['article_title'])
-                        preview_text = preview_element.text.strip()
-                    except NoSuchElementException:
-                        preview_text = ""
+                    # 使用向后兼容的方式提取标题
+                    title = extract_article_title_with_fallback(element)
 
-                    # 从预览内容提取标题
-                    title = extract_title_from_preview(preview_text)
+                    # 提取预览内容（使用更灵活的方式）
+                    preview_text = ""
+                    try:
+                        # 尝试多种可能的预览内容选择器
+                        preview_selectors = [
+                            SELECTORS.get('article_title'),
+                            SELECTORS.get('alternative', {}).get('article_title'),
+                            '.desc',
+                            '.preview',
+                            '.content'
+                        ]
+
+                        for selector in preview_selectors:
+                            if selector:
+                                try:
+                                    preview_element = element.find_element(By.CSS_SELECTOR, selector)
+                                    preview_text = preview_element.text.strip()
+                                    if preview_text:
+                                        break
+                                except:
+                                    continue
+                    except:
+                        pass
+
+                    # 如果没有预览内容，使用标题作为预览
+                    if not preview_text:
+                        preview_text = title
 
                     article_info = {
                         'index': article_index,
@@ -219,6 +286,7 @@ class WeChatAlbumCrawler:
                     }
 
                     new_articles.append(article_info)
+                    logging.debug(f"成功提取文章 {article_index}: {title[:30]}...")
 
                 except Exception as e:
                     logging.error(f"提取第{index+1}个文章信息失败: {e}")
